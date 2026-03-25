@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, CheckConstraint
+from sqlalchemy import Column, Integer, String, DateTime, CheckConstraint, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.functions import now
 
@@ -21,7 +21,6 @@ class ProductAttribute(Base):
     )
 
     __table_args__ = (
-        CheckConstraint(
-            "value = LOWER(value)", name="ck_product_attribute_value_lower"
-        ),
+        CheckConstraint("value = LOWER(value)", name="ck_product_attribute_value_lower"),
+        UniqueConstraint("name", "value", name="uq_product_attribute_name_value"),
     )

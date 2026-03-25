@@ -12,9 +12,9 @@ class User(Base):
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     phone = Column(String, nullable=True)
-    address_id = Column(Integer, ForeignKey("address.id"))
+    address_id = Column(Integer, ForeignKey("address.id"), index=True)
     password = Column(String, nullable=False)
-    role_id = Column(Integer, ForeignKey("role.id"), nullable=False)
+    role_id = Column(Integer, ForeignKey("role.id"), nullable=False, index=True)
     is_active = Column(Boolean, nullable=False, default=True)
 
     created_at = Column(DateTime(timezone=True), server_default=now())

@@ -25,15 +25,16 @@ class Order(Base):
             name="order_status",
         ),
         default="pending",
+        nullable=False,
     )
 
-    shipping_address_id = Column(Integer, ForeignKey("address.id"))
-    billing_address_id = Column(Integer, ForeignKey("address.id"))
+    shipping_address_id = Column(Integer, ForeignKey("address.id"), index=True)
+    billing_address_id = Column(Integer, ForeignKey("address.id"), index=True)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=now())
     updated_at = Column(DateTime(timezone=True), onupdate=now())
 
-    owner = relationship("User", back_populates="orders")
+    owner = relationship("User", foreign_keys=[user_id], back_populates="orders")
     order_items = relationship(
         "OrderItem", back_populates="order", cascade="all, delete-orphan"
     )

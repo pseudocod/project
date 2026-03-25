@@ -15,7 +15,7 @@ class Product(Base):
     stock_quantity = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
     category_id = Column(Integer, ForeignKey("category.id"), nullable=False, index=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=now())
     updated_at = Column(DateTime(timezone=True), onupdate=now())

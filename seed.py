@@ -90,11 +90,17 @@ def seed_database(db: Session) -> None:
     db.flush()
 
     electronics = Category(
-        name="Electronics", description="Gadgets, devices, and accessories"
+        name="Electronics",
+        description="Gadgets, devices, and accessories",
+        created_by=admin.id,
     )
-    clothing = Category(name="Clothing", description="Apparel for all seasons")
+    clothing = Category(
+        name="Clothing", description="Apparel for all seasons", created_by=admin.id
+    )
     books = Category(
-        name="Books", description="Fiction, non-fiction, and technical literature"
+        name="Books",
+        description="Fiction, non-fiction, and technical literature",
+        created_by=admin.id,
     )
     db.add_all([electronics, clothing, books])
     db.flush()
@@ -105,6 +111,7 @@ def seed_database(db: Session) -> None:
         price=Decimal("3499.99"),
         stock_quantity=15,
         category_id=electronics.id,
+        created_by=admin.id,
     )
     headphones = Product(
         name="SoundMax Wireless",
@@ -112,6 +119,7 @@ def seed_database(db: Session) -> None:
         price=Decimal("449.99"),
         stock_quantity=40,
         category_id=electronics.id,
+        created_by=admin.id,
     )
     tshirt = Product(
         name="Classic Cotton T-Shirt",
@@ -119,6 +127,7 @@ def seed_database(db: Session) -> None:
         price=Decimal("59.99"),
         stock_quantity=200,
         category_id=clothing.id,
+        created_by=admin.id,
     )
     jacket = Product(
         name="Winter Puffer Jacket",
@@ -126,6 +135,7 @@ def seed_database(db: Session) -> None:
         price=Decimal("299.99"),
         stock_quantity=50,
         category_id=clothing.id,
+        created_by=admin.id,
     )
     novel = Product(
         name="The Silent Algorithm",
@@ -133,6 +143,7 @@ def seed_database(db: Session) -> None:
         price=Decimal("39.99"),
         stock_quantity=80,
         category_id=books.id,
+        created_by=admin.id,
     )
     db.add_all([laptop, headphones, tshirt, jacket, novel])
     db.flush()
@@ -222,9 +233,6 @@ def seed_database(db: Session) -> None:
     )
     db.flush()
 
-    # ------------------------------------------------------------------
-    # Cart entries (Alice has items in cart)
-    # ------------------------------------------------------------------
     db.add_all(
         [
             CartEntry(user_id=alice.id, product_id=laptop.id, quantity=1),

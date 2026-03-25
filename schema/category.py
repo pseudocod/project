@@ -8,10 +8,10 @@ class Category(Base):
     __tablename__ = "category"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
+    name = Column(String, nullable=False, unique=True)
     description = Column(String, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=now())
     updated_at = Column(DateTime(timezone=True), onupdate=now())

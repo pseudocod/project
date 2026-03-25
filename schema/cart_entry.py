@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Integer, Column, DateTime, ForeignKey
+from sqlalchemy import CheckConstraint, Integer, Column, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from src.db.database import Base
 from sqlalchemy.sql.functions import now
@@ -16,6 +16,7 @@ class CartEntry(Base):
 
     __table_args__ = (
         CheckConstraint("quantity > 0", name="ck_cart_entry_quantity_positive"),
+        UniqueConstraint("user_id", "product_id", name="uq_cart_entry_user_product"),
     )
 
     user = relationship("User", back_populates="cart_entries")
