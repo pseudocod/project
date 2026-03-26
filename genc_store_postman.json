@@ -1,0 +1,263 @@
+{
+  "info": {
+    "name": "Genc Store API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.access_token) {",
+                  "    pm.collectionVariables.set('token', res.access_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"Test1234!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Signup",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.access_token) {",
+                  "    pm.collectionVariables.set('token', res.access_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/auth/signup", "host": ["{{base_url}}"], "path": ["auth", "signup"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"first_name\": \"John\",\n  \"last_name\": \"Doe\",\n  \"phone\": \"+40712345678\",\n  \"password\": \"Test1234!\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Happy Path - Two items card payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 1, \"quantity\": 2 },\n    { \"product_id\": 3, \"quantity\": 1 }\n  ],\n  \"payment_type\": \"card\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Happy Path - Single item cash payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 2, \"quantity\": 1 }\n  ],\n  \"payment_type\": \"cash\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 2\n}"
+            }
+          }
+        },
+        {
+          "name": "Error 422 - Empty items list",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [],\n  \"payment_type\": \"card\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Error 422 - Duplicate product IDs",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 1, \"quantity\": 2 },\n    { \"product_id\": 1, \"quantity\": 3 }\n  ],\n  \"payment_type\": \"card\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Error 422 - Quantity is 0",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 1, \"quantity\": 0 }\n  ],\n  \"payment_type\": \"card\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Error 422 - Negative quantity",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 1, \"quantity\": -5 }\n  ],\n  \"payment_type\": \"card\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Error 422 - product_id is 0",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 0, \"quantity\": 1 }\n  ],\n  \"payment_type\": \"card\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Error 422 - Invalid payment type",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 1, \"quantity\": 1 }\n  ],\n  \"payment_type\": \"crypto\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Error 422 - Missing payment_type field",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 1, \"quantity\": 1 }\n  ],\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Error 404 - Product not found",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 99999, \"quantity\": 1 }\n  ],\n  \"payment_type\": \"card\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Error 409 - Insufficient stock",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 1, \"quantity\": 99999 }\n  ],\n  \"payment_type\": \"card\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Error 401 - Missing token",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/orders/", "host": ["{{base_url}}"], "path": ["orders", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    { \"product_id\": 1, \"quantity\": 1 }\n  ],\n  \"payment_type\": \"card\",\n  \"shipping_address_id\": 1,\n  \"billing_address_id\": 1\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
