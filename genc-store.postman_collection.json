@@ -1,0 +1,350 @@
+{
+  "info": {
+    "name": "Genc Store - Address Flow",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "token", "value": "" },
+    { "key": "address_id_1", "value": "" },
+    { "key": "address_id_2", "value": "" },
+    { "key": "order_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var json = pm.response.json();",
+              "pm.collectionVariables.set(\"token\", json.access_token);",
+              "pm.test(\"Login successful\", function() {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(json.access_token).to.be.a(\"string\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"jason@example.com\",\n  \"password\": \"Jason@1234\"\n}"
+        }
+      }
+    },
+    {
+      "name": "2. List Addresses (empty for jason)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Returns empty list\", function() {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json()).to.be.an(\"array\").that.is.empty;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/users/me/addresses/", "host": ["{{baseUrl}}"], "path": ["users", "me", "addresses", ""] }
+      }
+    },
+    {
+      "name": "3. Create First Address (home)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var json = pm.response.json();",
+              "pm.collectionVariables.set(\"address_id_1\", json.id);",
+              "pm.test(\"Address created with id\", function() {",
+              "  pm.response.to.have.status(201);",
+              "  pm.expect(json.id).to.be.a(\"number\");",
+              "  pm.expect(json.street).to.eql(\"Str. Exemplu 1\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": { "raw": "{{baseUrl}}/users/me/addresses/", "host": ["{{baseUrl}}"], "path": ["users", "me", "addresses", ""] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"street\": \"Str. Exemplu 1\",\n  \"city\": \"Bucharest\",\n  \"state\": \"Ilfov\",\n  \"postal_code\": \"010101\",\n  \"country\": \"Romania\"\n}"
+        }
+      }
+    },
+    {
+      "name": "4. Create Second Address (work)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var json = pm.response.json();",
+              "pm.collectionVariables.set(\"address_id_2\", json.id);",
+              "pm.test(\"Second address created\", function() {",
+              "  pm.response.to.have.status(201);",
+              "  pm.expect(json.id).to.be.a(\"number\");",
+              "  pm.expect(json.street).to.eql(\"Bd. Muncii 5\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": { "raw": "{{baseUrl}}/users/me/addresses/", "host": ["{{baseUrl}}"], "path": ["users", "me", "addresses", ""] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"street\": \"Bd. Muncii 5\",\n  \"city\": \"Cluj-Napoca\",\n  \"state\": \"Cluj\",\n  \"postal_code\": \"400001\",\n  \"country\": \"Romania\"\n}"
+        }
+      }
+    },
+    {
+      "name": "5. List Addresses (should have 2)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var json = pm.response.json();",
+              "pm.test(\"Returns 2 addresses\", function() {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(json).to.be.an(\"array\").with.lengthOf(2);",
+              "});",
+              "pm.test(\"Each address has an id\", function() {",
+              "  json.forEach(function(addr) {",
+              "    pm.expect(addr.id).to.be.a(\"number\");",
+              "  });",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/users/me/addresses/", "host": ["{{baseUrl}}"], "path": ["users", "me", "addresses", ""] }
+      }
+    },
+    {
+      "name": "6. Update First Address",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var json = pm.response.json();",
+              "pm.test(\"Address updated\", function() {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(json.street).to.eql(\"Str. Modificata 99\");",
+              "  pm.expect(json.id).to.eql(parseInt(pm.collectionVariables.get(\"address_id_1\")));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": { "raw": "{{baseUrl}}/users/me/addresses/{{address_id_1}}", "host": ["{{baseUrl}}"], "path": ["users", "me", "addresses", "{{address_id_1}}"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"street\": \"Str. Modificata 99\",\n  \"city\": \"Bucharest\",\n  \"state\": \"Ilfov\",\n  \"postal_code\": \"010101\",\n  \"country\": \"Romania\"\n}"
+        }
+      }
+    },
+    {
+      "name": "7. Place Order (shipping = address 1, billing = address 2)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var json = pm.response.json();",
+              "pm.collectionVariables.set(\"order_id\", json.id);",
+              "pm.test(\"Order created\", function() {",
+              "  pm.response.to.have.status(201);",
+              "  pm.expect(json.id).to.be.a(\"number\");",
+              "});",
+              "pm.test(\"Shipping address is embedded object\", function() {",
+              "  pm.expect(json.shipping_address).to.be.an(\"object\");",
+              "  pm.expect(json.shipping_address.id).to.eql(parseInt(pm.collectionVariables.get(\"address_id_1\")));",
+              "  pm.expect(json.shipping_address.street).to.eql(\"Str. Modificata 99\");",
+              "});",
+              "pm.test(\"Billing address is embedded object\", function() {",
+              "  pm.expect(json.billing_address).to.be.an(\"object\");",
+              "  pm.expect(json.billing_address.id).to.eql(parseInt(pm.collectionVariables.get(\"address_id_2\")));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": { "raw": "{{baseUrl}}/orders/", "host": ["{{baseUrl}}"], "path": ["orders", ""] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"items\": [\n    { \"product_id\": 3, \"quantity\": 1 }\n  ],\n  \"payment_type\": \"card\",\n  \"shipping_address_id\": {{address_id_1}},\n  \"billing_address_id\": {{address_id_2}}\n}"
+        }
+      }
+    },
+    {
+      "name": "8. Get Order (verify embedded addresses)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var json = pm.response.json();",
+              "pm.test(\"Order returned\", function() {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Shipping address embedded\", function() {",
+              "  pm.expect(json.shipping_address).to.be.an(\"object\");",
+              "  pm.expect(json.shipping_address).to.have.all.keys(\"id\", \"street\", \"city\", \"state\", \"postal_code\", \"country\");",
+              "});",
+              "pm.test(\"Billing address embedded\", function() {",
+              "  pm.expect(json.billing_address).to.be.an(\"object\");",
+              "  pm.expect(json.billing_address).to.have.all.keys(\"id\", \"street\", \"city\", \"state\", \"postal_code\", \"country\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/orders/me/{{order_id}}", "host": ["{{baseUrl}}"], "path": ["orders", "me", "{{order_id}}"] }
+      }
+    },
+    {
+      "name": "9. Delete Second Address",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Address deleted\", function() {",
+              "  pm.response.to.have.status(200);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/users/me/addresses/{{address_id_2}}", "host": ["{{baseUrl}}"], "path": ["users", "me", "addresses", "{{address_id_2}}"] }
+      }
+    },
+    {
+      "name": "10. List Addresses (should have 1)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Only one address remains\", function() {",
+              "  pm.response.to.have.status(200);",
+              "  pm.expect(pm.response.json()).to.be.an(\"array\").with.lengthOf(1);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/users/me/addresses/", "host": ["{{baseUrl}}"], "path": ["users", "me", "addresses", ""] }
+      }
+    },
+    {
+      "name": "11. Try Delete Non-Existent Address (404)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Returns 404\", function() {",
+              "  pm.response.to.have.status(404);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/users/me/addresses/99999", "host": ["{{baseUrl}}"], "path": ["users", "me", "addresses", "99999"] }
+      }
+    },
+    {
+      "name": "12. Try Update Another User's Address (404)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Cannot update another user's address\", function() {",
+              "  pm.response.to.have.status(404);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": { "raw": "{{baseUrl}}/users/me/addresses/1", "host": ["{{baseUrl}}"], "path": ["users", "me", "addresses", "1"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"street\": \"Hacked Street\",\n  \"city\": \"Bucharest\",\n  \"state\": \"Ilfov\",\n  \"postal_code\": \"010101\",\n  \"country\": \"Romania\"\n}"
+        }
+      }
+    }
+  ]
+}
