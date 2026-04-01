@@ -1,0 +1,939 @@
+diff --git a/src/api/routes/__init__.py b/src/api/routes/__init__.py
+index c6e3925..b359223 100644
+--- a/src/api/routes/__init__.py
++++ b/src/api/routes/__init__.py
+@@ -3,6 +3,7 @@ from .auth import router as auth_router
+ from .users import router as users_router
+ from .orders import router as orders_router
+ from .reviews import router as reviews_router
++from .addresses import router as addresses_router
+ 
+ __all__ = [
+ 	"products_router",
+@@ -10,4 +11,5 @@ __all__ = [
+ 	"users_router",
+ 	"orders_router",
+ 	"reviews_router",
++	"addresses_router",
+ ]
+diff --git a/src/api/routes/users.py b/src/api/routes/users.py
+index 054c850..a742dd3 100644
+--- a/src/api/routes/users.py
++++ b/src/api/routes/users.py
+@@ -6,7 +6,6 @@ from src.models.user import (
+     UserResponseDTO,
+     PaginatedUsersResponse,
+     UserUpdateDTO,
+-    AddressDTO,
+ )
+ from src.api.services.user_service import UserService, get_user_service
+ from src.utils.auth import get_current_user, check_if_admin
+@@ -16,19 +15,7 @@ router = APIRouter(prefix="/users", tags=["users"])
+ 
+ @router.get("/me", response_model=UserResponseDTO)
+ def get_my_profile(current_user=Depends(get_current_user)):
+-    return UserResponseDTO(
+-        id=current_user.id,
+-        email=current_user.email,
+-        first_name=current_user.first_name,
+-        last_name=current_user.last_name,
+-        phone=current_user.phone,
+-        address_id=current_user.address_id,
+-        role=current_user.role.name,
+-        is_active=current_user.is_active,
+-        address=AddressDTO.model_validate(current_user.address) if current_user.address else None,
+-        created_at=current_user.created_at,
+-        updated_at=current_user.updated_at,
+-    )
++    return UserResponseDTO.model_validate(current_user)
+ 
+ 
+ @router.patch("/me", response_model=UserResponseDTO)
+@@ -38,19 +25,7 @@ def update_my_profile(
+     user_service: UserService = Depends(get_user_service),
+ ):
+     updated = user_service.update_user(current_user.id, data)
+-
+-    return UserResponseDTO(
+-        id=updated.id,
+-        email=updated.email,
+-        first_name=updated.first_name,
+-        last_name=updated.last_name,
+-        phone=updated.phone,
+-        role=updated.role.name,
+-        is_active=updated.is_active,
+-        address=AddressDTO.model_validate(updated.address) if updated.address else None,
+-        created_at=updated.created_at,
+-        updated_at=updated.updated_at,
+-    )
++    return UserResponseDTO.model_validate(updated)
+ 
+ 
+ @router.delete("/me", status_code=status.HTTP_200_OK)
+@@ -61,22 +36,6 @@ def deactivate_user(
+     return user_service.deactivate_user(user_id=current_user.id)
+ 
+ 
+-@router.put("/me/address", response_model=AddressDTO)
+-def upsert_my_address(
+-    data: AddressDTO,
+-    current_user=Depends(get_current_user),
+-    user_service: UserService = Depends(get_user_service),
+-):
+-    updated_user = user_service.upsert_my_address(current_user.id, data)
+-    return AddressDTO(
+-        street=updated_user.address.street,
+-        city=updated_user.address.city,
+-        state=updated_user.address.state,
+-        postal_code=updated_user.address.postal_code,
+-        country=updated_user.address.country,
+-    )
+-
+-
+ @router.get("/", response_model=PaginatedUsersResponse)
+ def get_users(
+     page: int = Query(1, ge=1, description="Page number"),
+diff --git a/src/api/services/order_service.py b/src/api/services/order_service.py
+index 006bdde..9317f70 100644
+--- a/src/api/services/order_service.py
++++ b/src/api/services/order_service.py
+@@ -12,6 +12,7 @@ from src.models.order import (
+     OrderResponseDTO,
+     OrderSummaryDTO,
+ )
++from src.models.user import AddressResponseDTO
+ from src.utils.exceptions import (
+     InsufficientStockException,
+     OrderNotFoundException,
+@@ -126,7 +127,7 @@ class OrderService:
+     def _get_and_validate_ownership(self, user_id: int, order_id: int) -> Order:
+         order = (
+             self.db.query(Order)
+-            .options(selectinload(Order.order_items))
++            .options(selectinload(Order.order_items), selectinload(Order.shipping_address), selectinload(Order.billing_address))
+             .filter(Order.id == order_id)
+             .first()
+         )
+@@ -172,8 +173,8 @@ class OrderService:
+             id=order.id,
+             status=order.status,
+             payment_type=order.payment_type,
+-            shipping_address_id=order.shipping_address_id,
+-            billing_address_id=order.billing_address_id,
++            shipping_address=AddressResponseDTO.model_validate(order.shipping_address) if order.shipping_address else None,
++            billing_address=AddressResponseDTO.model_validate(order.billing_address) if order.billing_address else None,
+             created_at=order.created_at,
+             items=[
+                 OrderItemResponseDTO(
+diff --git a/src/api/services/user_service.py b/src/api/services/user_service.py
+index c4f7cb7..4ad359c 100644
+--- a/src/api/services/user_service.py
++++ b/src/api/services/user_service.py
+@@ -6,12 +6,10 @@ from sqlalchemy.orm import Session, joinedload
+ 
+ from src.db.database import get_db
+ from src.db.schema.user import User
+-from src.db.schema.address import Address
+ from src.db.schema.role import Role
+ from src.models.user import (
+     UserResponseDTO,
+     UserUpdateDTO,
+-    AddressDTO,
+ )
+ from src.utils.exceptions import (
+     EmailAlreadyTakenException,
+@@ -114,35 +112,6 @@ class UserService:
+ 
+         return user
+ 
+-    def upsert_my_address(self, user_id: int, data: AddressDTO):
+-        user = (
+-            self.db.query(User)
+-            .options(joinedload(User.address))
+-            .filter(User.id == user_id)
+-            .first()
+-        )
+-
+-        if not user:
+-            raise UserNotFoundException(user_id)
+-
+-        if user.address:
+-            for field, value in data.model_dump().items():
+-                setattr(user.address, field, value)
+-        else:
+-            new_address = Address(**data.model_dump())
+-            self.db.add(new_address)
+-            self.db.flush()
+-            user.address_id = new_address.id
+-
+-        try:
+-            self.db.commit()
+-            self.db.refresh(user)
+-        except SQLAlchemyError:
+-            self.db.rollback()
+-            raise
+-
+-        return user
+-
+     def change_user_role(self, user_id: int, role_name: str):
+         user = (
+             self.db.query(User)
+diff --git a/src/db/schema/address.py b/src/db/schema/address.py
+index 4f5b1d3..18bff1f 100644
+--- a/src/db/schema/address.py
++++ b/src/db/schema/address.py
+@@ -1,4 +1,4 @@
+-from sqlalchemy import Boolean, Integer, Column, String, DateTime
++from sqlalchemy import Boolean, Integer, Column, String, DateTime, ForeignKey
+ from sqlalchemy.orm import relationship
+ from sqlalchemy.sql.functions import now
+ 
+@@ -9,6 +9,7 @@ class Address(Base):
+     __tablename__ = "address"
+ 
+     id = Column(Integer, primary_key=True, index=True)
++    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+     street = Column(String, nullable=False)
+     city = Column(String, nullable=False)
+     state = Column(String, nullable=False)
+@@ -18,4 +19,4 @@ class Address(Base):
+     created_at = Column(DateTime(timezone=True), server_default=now())
+     updated_at = Column(DateTime(timezone=True), onupdate=now())
+ 
+-    user = relationship("User", back_populates="address")
++    user = relationship("User", back_populates="addresses")
+\ No newline at end of file
+diff --git a/src/db/schema/user.py b/src/db/schema/user.py
+index b270bed..3a2f97d 100644
+--- a/src/db/schema/user.py
++++ b/src/db/schema/user.py
+@@ -12,7 +12,6 @@ class User(Base):
+     first_name = Column(String, nullable=False)
+     last_name = Column(String, nullable=False)
+     phone = Column(String, nullable=True)
+-    address_id = Column(Integer, ForeignKey("address.id"), index=True)
+     password = Column(String, nullable=False)
+     role_id = Column(Integer, ForeignKey("role.id"), nullable=False, index=True)
+     is_active = Column(Boolean, nullable=False, default=True)
+@@ -25,5 +24,5 @@ class User(Base):
+     cart_entries = relationship(
+         "CartEntry", back_populates="user", cascade="all, delete-orphan"
+     )
+-    address = relationship("Address", back_populates="user")
++    addresses = relationship("Address", back_populates="user", cascade="all, delete-orphan")
+     reviews = relationship("Review", back_populates="user", cascade="all, delete-orphan")
+diff --git a/src/db/seed.py b/src/db/seed.py
+index e3d4d47..1cbac3f 100644
+--- a/src/db/seed.py
++++ b/src/db/seed.py
+@@ -14,6 +14,7 @@ from src.db.schema import (
+     CartEntry,
+     Order,
+     OrderItem,
++    Review,
+ )
+ 
+ password_hash = PasswordHash.recommended()
+@@ -28,76 +29,6 @@ def seed_database(db: Session) -> None:
+     db.add_all([role_admin, role_customer])
+     db.flush()
+ 
+-    addr_admin = Address(
+-        street="Str. Independentei 1",
+-        city="Bucharest",
+-        state="Ilfov",
+-        postal_code="010101",
+-        country="Romania",
+-    )
+-    addr_alice = Address(
+-        street="Str. Florilor 22",
+-        city="Cluj-Napoca",
+-        state="Cluj",
+-        postal_code="400001",
+-        country="Romania",
+-    )
+-    addr_bob = Address(
+-        street="Bd. Unirii 5",
+-        city="Timisoara",
+-        state="Timis",
+-        postal_code="300001",
+-        country="Romania",
+-    )
+-    addr_diana = Address(
+-        street="Aleea Trandafirilor 3",
+-        city="Brasov",
+-        state="Brasov",
+-        postal_code="500001",
+-        country="Romania",
+-    )
+-    addr_elena = Address(
+-        street="Calea Victoriei 100",
+-        city="Bucharest",
+-        state="Ilfov",
+-        postal_code="010063",
+-        country="Romania",
+-    )
+-    addr_florin = Address(
+-        street="Str. Mihai Eminescu 7",
+-        city="Iasi",
+-        state="Iasi",
+-        postal_code="700001",
+-        country="Romania",
+-    )
+-    addr_ship1 = Address(
+-        street="Str. Libertatii 9",
+-        city="Iasi",
+-        state="Iasi",
+-        postal_code="700002",
+-        country="Romania",
+-    )
+-    addr_ship2 = Address(
+-        street="Bd. Decebal 14",
+-        city="Cluj-Napoca",
+-        state="Cluj",
+-        postal_code="400002",
+-        country="Romania",
+-    )
+-    db.add_all(
+-        [
+-            addr_admin,
+-            addr_alice,
+-            addr_bob,
+-            addr_diana,
+-            addr_elena,
+-            addr_florin,
+-            addr_ship1,
+-            addr_ship2,
+-        ]
+-    )
+-    db.flush()
+-
+     admin = User(
+         email="admin@gencstore.com",
+         first_name="Admin",
+@@ -105,7 +36,6 @@ def seed_database(db: Session) -> None:
+         phone="0700000001",
+         password=password_hash.hash("Admin@1234"),
+         role_id=role_admin.id,
+-        address_id=addr_admin.id,
+     )
+     alice = User(
+         email="alice@example.com",
+@@ -114,7 +44,6 @@ def seed_database(db: Session) -> None:
+         phone="0700000002",
+         password=password_hash.hash("Alice@1234"),
+         role_id=role_customer.id,
+-        address_id=addr_alice.id,
+     )
+     bob = User(
+         email="bob@example.com",
+@@ -123,7 +52,6 @@ def seed_database(db: Session) -> None:
+         phone="0700000003",
+         password=password_hash.hash("Bob@1234"),
+         role_id=role_customer.id,
+-        address_id=addr_bob.id,
+     )
+     jason = User(
+         email="jason@example.com",
+@@ -132,7 +60,6 @@ def seed_database(db: Session) -> None:
+         phone="0700000004",
+         password=password_hash.hash("Jason@1234"),
+         role_id=role_customer.id,
+-        address_id=None,
+     )
+     charlie = User(
+         email="charlie@example.com",
+@@ -141,7 +68,6 @@ def seed_database(db: Session) -> None:
+         phone="0700000005",
+         password=password_hash.hash("Charlie@1234"),
+         role_id=role_customer.id,
+-        address_id=None,
+     )
+     diana = User(
+         email="diana@example.com",
+@@ -150,7 +76,6 @@ def seed_database(db: Session) -> None:
+         phone="0700000010",
+         password=password_hash.hash("Diana@1234"),
+         role_id=role_customer.id,
+-        address_id=addr_diana.id,
+     )
+     elena = User(
+         email="elena@example.com",
+@@ -159,7 +84,6 @@ def seed_database(db: Session) -> None:
+         phone="0700000011",
+         password=password_hash.hash("Elena@1234"),
+         role_id=role_customer.id,
+-        address_id=addr_elena.id,
+     )
+     florin = User(
+         email="florin@example.com",
+@@ -168,7 +92,6 @@ def seed_database(db: Session) -> None:
+         phone="0700000012",
+         password=password_hash.hash("Florin@1234"),
+         role_id=role_customer.id,
+-        address_id=addr_florin.id,
+     )
+     extra_users = [
+         User(
+@@ -311,7 +234,120 @@ def seed_database(db: Session) -> None:
+     db.add_all([admin, alice, bob, jason, charlie, diana, elena, florin, *extra_users])
+     db.flush()
+ 
+-    # ── Categories ───────────────────────────────────────────────────────────
++    addr_admin = Address(
++        user_id=admin.id,
++        street="Str. Independentei 1",
++        city="Bucharest",
++        state="Ilfov",
++        postal_code="010101",
++        country="Romania",
++    )
++    addr_alice = Address(
++        user_id=alice.id,
++        street="Str. Florilor 22",
++        city="Cluj-Napoca",
++        state="Cluj",
++        postal_code="400001",
++        country="Romania",
++    )
++    addr_alice2 = Address(
++        user_id=alice.id,
++        street="Bd. Eroilor 8",
++        city="Cluj-Napoca",
++        state="Cluj",
++        postal_code="400005",
++        country="Romania",
++    )
++    addr_bob = Address(
++        user_id=bob.id,
++        street="Bd. Unirii 5",
++        city="Timisoara",
++        state="Timis",
++        postal_code="300001",
++        country="Romania",
++    )
++    addr_bob2 = Address(
++        user_id=bob.id,
++        street="Str. Popa Sapca 3",
++        city="Timisoara",
++        state="Timis",
++        postal_code="300004",
++        country="Romania",
++    )
++    addr_diana = Address(
++        user_id=diana.id,
++        street="Aleea Trandafirilor 3",
++        city="Brasov",
++        state="Brasov",
++        postal_code="500001",
++        country="Romania",
++    )
++    addr_diana2 = Address(
++        user_id=diana.id,
++        street="Str. Republicii 12",
++        city="Brasov",
++        state="Brasov",
++        postal_code="500003",
++        country="Romania",
++    )
++    addr_elena = Address(
++        user_id=elena.id,
++        street="Calea Victoriei 100",
++        city="Bucharest",
++        state="Ilfov",
++        postal_code="010063",
++        country="Romania",
++    )
++    addr_florin = Address(
++        user_id=florin.id,
++        street="Str. Mihai Eminescu 7",
++        city="Iasi",
++        state="Iasi",
++        postal_code="700001",
++        country="Romania",
++    )
++    addr_florin2 = Address(
++        user_id=florin.id,
++        street="Aleea Nicolina 22",
++        city="Iasi",
++        state="Iasi",
++        postal_code="700005",
++        country="Romania",
++    )
++    addr_ship1 = Address(
++        user_id=alice.id,
++        street="Str. Libertatii 9",
++        city="Iasi",
++        state="Iasi",
++        postal_code="700002",
++        country="Romania",
++    )
++    addr_ship2 = Address(
++        user_id=bob.id,
++        street="Bd. Decebal 14",
++        city="Cluj-Napoca",
++        state="Cluj",
++        postal_code="400002",
++        country="Romania",
++    )
++    db.add_all(
++        [
++            addr_admin,
++            addr_alice,
++            addr_alice2,
++            addr_bob,
++            addr_bob2,
++            addr_diana,
++            addr_diana2,
++            addr_elena,
++            addr_florin,
++            addr_florin2,
++            addr_ship1,
++            addr_ship2,
++        ]
++    )
++    db.flush()
++
+     electronics = Category(
+         name="Electronics",
+         description="Gadgets, devices, and accessories",
+@@ -383,7 +419,6 @@ def seed_database(db: Session) -> None:
+         category_id=electronics.id,
+         created_by=admin.id,
+     )
+-    # Discontinued / inactive product (edge case)
+     old_tablet = Product(
+         name="TabMax 10 (Discontinued)",
+         description="10-inch tablet — no longer produced.",
+@@ -394,7 +429,6 @@ def seed_database(db: Session) -> None:
+         created_by=admin.id,
+     )
+ 
+-    # Clothing
+     tshirt = Product(
+         name="Classic Cotton T-Shirt",
+         description="100% cotton unisex t-shirt, available in multiple colors and sizes.",
+@@ -434,9 +468,8 @@ def seed_database(db: Session) -> None:
+         stock_quantity=3,
+         category_id=clothing.id,
+         created_by=admin.id,
+-    )  # low stock edge case
++    )
+ 
+-    # Books
+     novel = Product(
+         name="The Silent Algorithm",
+         description="A sci-fi thriller about AI consciousness and the ethics of sentient machines.",
+@@ -470,7 +503,6 @@ def seed_database(db: Session) -> None:
+         created_by=admin.id,
+     )
+ 
+-    # Home & Garden
+     cutting_board = Product(
+         name="Bamboo Cutting Board Set",
+         description="Set of 3 premium bamboo cutting boards in different sizes.",
+@@ -494,9 +526,8 @@ def seed_database(db: Session) -> None:
+         stock_quantity=0,
+         category_id=home_garden.id,
+         created_by=admin.id,
+-    )  # out of stock edge case
++    )
+ 
+-    # Sports & Fitness
+     yoga_mat = Product(
+         name="Yoga Mat Premium",
+         description="Non-slip 6mm thick yoga mat with alignment lines and carrying strap.",
+@@ -522,7 +553,6 @@ def seed_database(db: Session) -> None:
+         created_by=admin.id,
+     )
+ 
+-    # Beauty & Health
+     serum = Product(
+         name="Vitamin C Brightening Serum",
+         description="10% Vitamin C serum with hyaluronic acid for radiant, even-toned skin.",
+@@ -569,11 +599,8 @@ def seed_database(db: Session) -> None:
+     )
+     db.flush()
+ 
+-    # ── Product Images (placeholder URLs via placehold.co) ───────────────────
+-    # Format: https://placehold.co/600x400/BGCOLOR/TEXTCOLOR?text=Label
+     db.add_all(
+         [
+-            # Electronics
+             ProductImage(
+                 product_id=laptop.id,
+                 image_path="https://placehold.co/600x400/1a1a2e/ffffff?text=UltraBook+Pro+14",
+@@ -614,7 +641,6 @@ def seed_database(db: Session) -> None:
+                 product_id=old_tablet.id,
+                 image_path="https://placehold.co/600x400/adb5bd/ffffff?text=TabMax+10",
+             ),
+-            # Clothing
+             ProductImage(
+                 product_id=tshirt.id,
+                 image_path="https://placehold.co/600x400/ffffff/333333?text=T-Shirt+White",
+@@ -651,7 +677,6 @@ def seed_database(db: Session) -> None:
+                 product_id=sweater.id,
+                 image_path="https://placehold.co/600x400/6b4226/ffffff?text=Merino+Sweater+Brown",
+             ),
+-            # Books
+             ProductImage(
+                 product_id=novel.id,
+                 image_path="https://placehold.co/400x600/0d0d0d/00ffcc?text=The+Silent+Algorithm",
+@@ -668,7 +693,6 @@ def seed_database(db: Session) -> None:
+                 product_id=dune.id,
+                 image_path="https://placehold.co/400x600/c77dff/0d0221?text=Dune",
+             ),
+-            # Home & Garden
+             ProductImage(
+                 product_id=cutting_board.id,
+                 image_path="https://placehold.co/600x400/a0785a/ffffff?text=Bamboo+Cutting+Board",
+@@ -685,7 +709,6 @@ def seed_database(db: Session) -> None:
+                 product_id=desk_lamp.id,
+                 image_path="https://placehold.co/600x400/f4f1de/333333?text=LED+Desk+Lamp",
+             ),
+-            # Sports & Fitness
+             ProductImage(
+                 product_id=yoga_mat.id,
+                 image_path="https://placehold.co/600x400/8ecae6/333333?text=Yoga+Mat+Premium",
+@@ -702,7 +725,6 @@ def seed_database(db: Session) -> None:
+                 product_id=water_bottle.id,
+                 image_path="https://placehold.co/600x400/1d3557/ffffff?text=Bottle+Black+Edition",
+             ),
+-            # Beauty & Health
+             ProductImage(
+                 product_id=serum.id,
+                 image_path="https://placehold.co/600x400/ffe8d6/8b5e3c?text=Vitamin+C+Serum",
+@@ -715,7 +737,6 @@ def seed_database(db: Session) -> None:
+     )
+     db.flush()
+ 
+-    # ── Product Attributes ───────────────────────────────────────────────────
+     attr_color_black = ProductAttribute(name="color", value="black")
+     attr_color_white = ProductAttribute(name="color", value="white")
+     attr_color_blue = ProductAttribute(name="color", value="blue")
+@@ -766,7 +787,6 @@ def seed_database(db: Session) -> None:
+ 
+     db.add_all(
+         [
+-            # Laptop
+             ProductAttributeLink(
+                 product_id=laptop.id, attribute_id=attr_color_black.id
+             ),
+@@ -781,14 +801,12 @@ def seed_database(db: Session) -> None:
+             ProductAttributeLink(
+                 product_id=laptop.id, attribute_id=attr_storage_1tb.id
+             ),
+-            # Headphones
+             ProductAttributeLink(
+                 product_id=headphones.id, attribute_id=attr_color_black.id
+             ),
+             ProductAttributeLink(
+                 product_id=headphones.id, attribute_id=attr_color_white.id
+             ),
+-            # SmartWatch
+             ProductAttributeLink(
+                 product_id=smartwatch.id, attribute_id=attr_band_black.id
+             ),
+@@ -798,7 +816,6 @@ def seed_database(db: Session) -> None:
+             ProductAttributeLink(
+                 product_id=smartwatch.id, attribute_id=attr_band_coral.id
+             ),
+-            # Keyboard
+             ProductAttributeLink(
+                 product_id=keyboard.id, attribute_id=attr_color_black.id
+             ),
+@@ -811,7 +828,6 @@ def seed_database(db: Session) -> None:
+             ProductAttributeLink(
+                 product_id=keyboard.id, attribute_id=attr_switch_blue.id
+             ),
+-            # T-Shirt
+             ProductAttributeLink(
+                 product_id=tshirt.id, attribute_id=attr_color_black.id
+             ),
+@@ -824,7 +840,6 @@ def seed_database(db: Session) -> None:
+             ProductAttributeLink(product_id=tshirt.id, attribute_id=attr_size_m.id),
+             ProductAttributeLink(product_id=tshirt.id, attribute_id=attr_size_l.id),
+             ProductAttributeLink(product_id=tshirt.id, attribute_id=attr_size_xl.id),
+-            # Jacket
+             ProductAttributeLink(
+                 product_id=jacket.id, attribute_id=attr_color_black.id
+             ),
+@@ -833,7 +848,6 @@ def seed_database(db: Session) -> None:
+             ProductAttributeLink(product_id=jacket.id, attribute_id=attr_size_m.id),
+             ProductAttributeLink(product_id=jacket.id, attribute_id=attr_size_l.id),
+             ProductAttributeLink(product_id=jacket.id, attribute_id=attr_size_xl.id),
+-            # Running Shorts
+             ProductAttributeLink(
+                 product_id=shorts.id, attribute_id=attr_color_black.id
+             ),
+@@ -845,7 +859,6 @@ def seed_database(db: Session) -> None:
+             ProductAttributeLink(product_id=shorts.id, attribute_id=attr_size_m.id),
+             ProductAttributeLink(product_id=shorts.id, attribute_id=attr_size_l.id),
+             ProductAttributeLink(product_id=shorts.id, attribute_id=attr_size_xl.id),
+-            # Jeans
+             ProductAttributeLink(product_id=jeans.id, attribute_id=attr_color_blue.id),
+             ProductAttributeLink(product_id=jeans.id, attribute_id=attr_color_black.id),
+             ProductAttributeLink(product_id=jeans.id, attribute_id=attr_size_s.id),
+@@ -853,10 +866,8 @@ def seed_database(db: Session) -> None:
+             ProductAttributeLink(product_id=jeans.id, attribute_id=attr_size_l.id),
+             ProductAttributeLink(product_id=jeans.id, attribute_id=attr_size_xl.id),
+             ProductAttributeLink(product_id=jeans.id, attribute_id=attr_size_xxl.id),
+-            # Sweater
+             ProductAttributeLink(product_id=sweater.id, attribute_id=attr_size_m.id),
+             ProductAttributeLink(product_id=sweater.id, attribute_id=attr_size_l.id),
+-            # Water Bottle
+             ProductAttributeLink(
+                 product_id=water_bottle.id, attribute_id=attr_color_black.id
+             ),
+@@ -870,7 +881,6 @@ def seed_database(db: Session) -> None:
+     )
+     db.flush()
+ 
+-    # ── Cart Entries ─────────────────────────────────────────────────────────
+     db.add_all(
+         [
+             CartEntry(user_id=alice.id, product_id=laptop.id, quantity=1),
+@@ -889,7 +899,6 @@ def seed_database(db: Session) -> None:
+     )
+     db.flush()
+ 
+-    # ── Orders (all statuses covered) ────────────────────────────────────────
+     order_delivered = Order(
+         user_id=alice.id,
+         payment_type="card",
+@@ -939,7 +948,6 @@ def seed_database(db: Session) -> None:
+         shipping_address_id=addr_ship1.id,
+         billing_address_id=addr_ship1.id,
+     )
+-    # Alice second order
+     order_alice2 = Order(
+         user_id=alice.id,
+         payment_type="card",
+@@ -963,7 +971,6 @@ def seed_database(db: Session) -> None:
+ 
+     db.add_all(
+         [
+-            # order_delivered: alice bought t-shirt + novel
+             OrderItem(
+                 order_id=order_delivered.id,
+                 product_id=tshirt.id,
+@@ -978,7 +985,6 @@ def seed_database(db: Session) -> None:
+                 quantity=1,
+                 price_per_piece=novel.price,
+             ),
+-            # order_pending: bob buying headphones + yoga mat
+             OrderItem(
+                 order_id=order_pending.id,
+                 product_id=headphones.id,
+@@ -993,7 +999,6 @@ def seed_database(db: Session) -> None:
+                 quantity=1,
+                 price_per_piece=yoga_mat.price,
+             ),
+-            # order_confirmed: diana buying smartwatch
+             OrderItem(
+                 order_id=order_confirmed.id,
+                 product_id=smartwatch.id,
+@@ -1008,7 +1013,6 @@ def seed_database(db: Session) -> None:
+                 quantity=2,
+                 price_per_piece=resistance_bands.price,
+             ),
+-            # order_in_delivery: elena buying books
+             OrderItem(
+                 order_id=order_in_delivery.id,
+                 product_id=clean_code.id,
+@@ -1030,7 +1034,6 @@ def seed_database(db: Session) -> None:
+                 quantity=1,
+                 price_per_piece=dune.price,
+             ),
+-            # order_completed: florin bought laptop + keyboard
+             OrderItem(
+                 order_id=order_completed.id,
+                 product_id=laptop.id,
+@@ -1045,7 +1048,6 @@ def seed_database(db: Session) -> None:
+                 quantity=1,
+                 price_per_piece=keyboard.price,
+             ),
+-            # order_cancelled: jason cancelled (jeans + jacket)
+             OrderItem(
+                 order_id=order_cancelled.id,
+                 product_id=jeans.id,
+@@ -1060,7 +1062,6 @@ def seed_database(db: Session) -> None:
+                 quantity=1,
+                 price_per_piece=jacket.price,
+             ),
+-            # order_returned: charlie returned shampoo bars
+             OrderItem(
+                 order_id=order_returned.id,
+                 product_id=shampoo.id,
+@@ -1068,7 +1069,6 @@ def seed_database(db: Session) -> None:
+                 quantity=4,
+                 price_per_piece=shampoo.price,
+             ),
+-            # order_alice2: alice's second completed order (monitor + serum)
+             OrderItem(
+                 order_id=order_alice2.id,
+                 product_id=monitor.id,
+@@ -1085,6 +1085,29 @@ def seed_database(db: Session) -> None:
+             ),
+         ]
+     )
++    db.flush()
++
++    db.add_all(
++        [
++            Review(user_id=alice.id, product_id=tshirt.id, rating=5.0),
++            Review(user_id=alice.id, product_id=novel.id, rating=4.5),
++            Review(user_id=alice.id, product_id=monitor.id, rating=4.0),
++            Review(user_id=alice.id, product_id=serum.id, rating=5.0),
++            Review(user_id=florin.id, product_id=laptop.id, rating=4.5),
++            Review(user_id=florin.id, product_id=keyboard.id, rating=5.0),
++            Review(user_id=florin.id, product_id=clean_code.id, rating=5.0),
++            Review(user_id=florin.id, product_id=atomic_habits.id, rating=4.0),
++            Review(user_id=bob.id, product_id=headphones.id, rating=3.5),
++            Review(user_id=bob.id, product_id=yoga_mat.id, rating=4.0),
++            Review(user_id=bob.id, product_id=water_bottle.id, rating=5.0),
++            Review(user_id=diana.id, product_id=smartwatch.id, rating=4.5),
++            Review(user_id=diana.id, product_id=resistance_bands.id, rating=3.5),
++            Review(user_id=elena.id, product_id=clean_code.id, rating=5.0),
++            Review(user_id=elena.id, product_id=dune.id, rating=4.5),
++            Review(user_id=jason.id, product_id=jeans.id, rating=2.0),
++            Review(user_id=jason.id, product_id=jacket.id, rating=1.5),
++        ]
++    )
+ 
+     db.commit()
+     print("Database seeded with mock data.")
+diff --git a/src/main.py b/src/main.py
+index cba6a75..f774064 100644
+--- a/src/main.py
++++ b/src/main.py
+@@ -10,6 +10,7 @@ from .api.routes import (
+     users_router,
+     orders_router,
+     reviews_router,
++    addresses_router,
+ )
+ from .api.middlewares.jwt_middleware import JWTMiddleware
+ from .utils.openapi import configure_openapi
+@@ -35,6 +36,7 @@ configure_openapi(app)
+ app.include_router(products_router)
+ app.include_router(auth_router)
+ app.include_router(users_router)
++app.include_router(addresses_router)
+ app.include_router(orders_router)
+ app.include_router(reviews_router)
+ 
+diff --git a/src/models/order.py b/src/models/order.py
+index e40872c..e70fc4d 100644
+--- a/src/models/order.py
++++ b/src/models/order.py
+@@ -1,8 +1,9 @@
+ from datetime import datetime
+-from typing import Literal
++from typing import Literal, Optional
+ from pydantic import BaseModel, Field, model_validator
+ 
+ from src.models.pagination import PaginatedResponse
++from src.models.user import AddressResponseDTO
+ 
+ 
+ class OrderItemRequestDTO(BaseModel):
+@@ -35,8 +36,8 @@ class OrderResponseDTO(BaseModel):
+     id: int
+     status: str
+     payment_type: str
+-    shipping_address_id: int
+-    billing_address_id: int
++    shipping_address: Optional[AddressResponseDTO]
++    billing_address: Optional[AddressResponseDTO]
+     created_at: datetime
+     items: list[OrderItemResponseDTO]
+ 
+diff --git a/src/models/user.py b/src/models/user.py
+index 9209c03..eb65cfb 100644
+--- a/src/models/user.py
++++ b/src/models/user.py
+@@ -4,16 +4,29 @@ from typing import Optional
+ from src.models.pagination import PaginatedResponse
+ 
+ 
++class AddressDTO(BaseModel):
++    street: str
++    city: str
++    state: str
++    postal_code: str
++    country: str
++
++    model_config = ConfigDict(from_attributes=True)
++
++
++class AddressResponseDTO(AddressDTO):
++    id: int
++
++
+ class UserResponseDTO(BaseModel):
+     id: int
+     email: str
+     first_name: str
+     last_name: str
+     phone: Optional[str]
+-    address_id: Optional[int] = None
+     role: str
+     is_active: bool
+-    address: Optional["AddressDTO"] = None
++    addresses: list[AddressResponseDTO] = []
+ 
+     created_at: Optional[datetime]
+     updated_at: Optional[datetime]
+@@ -30,13 +43,3 @@ class UserUpdateDTO(BaseModel):
+     last_name: Optional[str] = None
+     phone: Optional[str] = None
+     email: Optional[EmailStr] = None
+-
+-
+-class AddressDTO(BaseModel):
+-    street: str
+-    city: str
+-    state: str
+-    postal_code: str
+-    country: str
+-
+-    model_config = ConfigDict(from_attributes=True)
+diff --git a/src/utils/exception_handlers.py b/src/utils/exception_handlers.py
+index cfec08b..29762a6 100644
+--- a/src/utils/exception_handlers.py
++++ b/src/utils/exception_handlers.py
+@@ -1,6 +1,7 @@
+ from fastapi import FastAPI, Request
+ from fastapi.responses import JSONResponse
+ from .exceptions import (
++    AddressNotFoundException,
+     EmailAlreadyTakenException,
+     InsufficientStockException,
+     OrderNotFoundException,
+@@ -84,6 +85,10 @@ def register_exception_handlers(app: FastAPI) -> None:
+     ):
+         return JSONResponse(status_code=409, content={"detail": exc.message})
+ 
++    @app.exception_handler(AddressNotFoundException)
++    def address_not_found_handler(request: Request, exc: AddressNotFoundException):
++        return JSONResponse(status_code=404, content={"detail": exc.message})
++
+     @app.exception_handler(EmailAlreadyTakenException)
+     def email_already_taken_handler(request: Request, exc: EmailAlreadyTakenException):
+         return JSONResponse(status_code=409, content={"detail": exc.message})
+diff --git a/src/utils/exceptions.py b/src/utils/exceptions.py
+index 7e2bf86..6d92186 100644
+--- a/src/utils/exceptions.py
++++ b/src/utils/exceptions.py
+@@ -105,3 +105,10 @@ class EmailAlreadyTakenException(Exception):
+         self.email = email
+         self.message = f"Email '{email}' is already in use."
+         super().__init__(self.message)
++
++
++class AddressNotFoundException(Exception):
++    def __init__(self, address_id: int):
++        self.address_id = address_id
++        self.message = f"Address with ID {address_id} not found."
++        super().__init__(self.message)
